@@ -6,105 +6,90 @@ from random import seed, random
 from math import exp
 
 
-def initialize_network(num_inputs, num_hidden, num_outputs):
-    network = []
-    hidden_layer = []
-    for _ in range(num_hidden):
-        weights = {'weights': [random() for _ in range(num_inputs + 1)]}
-        hidden_layer.append(weights)
-    network.append(hidden_layer)
-
-    output_layer = []
-    for _ in range(num_outputs):
-        weights = {'weights': [random() for _ in range(num_hidden + 1)]}
-        output_layer.append(weights)
-    network.append(output_layer)
-
-    return network
+from random import seed, random
+from math import exp
 
 
-def activate(weights, inputs):
-    # bias node
-    activation = weights[-1]
-    # fully connected neural network, therefore activation must be summation
-    # of all nodes in previous layer
-    for i in range(len(weights) - 1):
-        activation += weights[i] * inputs[i]
-    return activation
+class Neuron:
+    def __init__(self, weights):
+        self.weights = weights
+        self.output = None
+        self.delta = None
 
 
-def forward_propagate(network, inputs):
-    for layer in network:
-        new_inputs = []
-        for neuron in layer:
-            activation = activate(neuron['weights'], inputs)
-            # sigmoid activation function
-            neuron['output'] = 1.0 / (1.0 + exp(-activation))
-            new_inputs.append(neuron['output'])
-        inputs = new_inputs
-    return inputs
+class Network:
+    def __init__(self, num_inputs, num_hidden, num_outputs):
+        self.layers = []
+        self.initialize_network(num_inputs, num_hidden, num_outputs)
 
+    def initialize_network(self, num_inputs, num_hidden, num_outputs):
+        hidden_layer = [Neuron([random() for _ in range(num_inputs + 1)])
+                        for _ in range(num_hidden)]
+        self.layers.append(hidden_layer)
 
-def backward_propagate_error(network, expected):
-    for i in reversed(range(len(network))):
-        layer = network[i]
-        errors = []
-        # everything besides output layer
-        if i != len(network)-1:
-            for j in range(len(layer)):
-                error = 0.0
-                # next layer closest to output
-                for neuron in network[i + 1]:
-                    # weighted error
-                    error += (neuron['weights'][j] * neuron['delta'])
-                errors.append(error)
-        else:
-            # output layer error is just actual - expected
-            for j in range(len(layer)):
-                neuron = layer[j]
-                errors.append(neuron['output'] - expected[j])
-        # calculate delta with sigmoid derivative
-        for j in range(len(layer)):
-            neuron = layer[j]
-            neuron['delta'] = errors[j] * \
-                neuron['output'] * (1.0 - neuron['output'])
+        output_layer = [Neuron([random() for _ in range(num_hidden + 1)])
+                        for _ in range(num_outputs)]
+        self.layers.append(output_layer)
 
+    def activate(self, weights, inputs):
+        activation = weights[-1]
+        for i in range(len(weights) - 1):
+            activation += inputs[i] * weights[i]
+        return activation
 
-def update_weights(network, row, learn_rate):
-    for i in range(len(network)):
-        # exclude target output
+    def forward_propagate(self, inputs):
+        for layer in self.layers:
+            new_inputs = []
+            for neuron in layer:
+                activation = self.activate(neuron.weights, inputs)
+                neuron.output = 1.0 / (1.0 + exp(-activation))
+                new_inputs.append(neuron.output)
+            inputs = new_inputs
+        return inputs
+
+    def backward_propagate_error(self, expected):
+        for i in reversed(range(len(self.layers))):
+            layer = self.layers[i]
+            err = []
+            if i == len(self.layers) - 1:
+                for j, neuron in enumerate(layer):
+                    err.append(neuron.output - expected[j])
+            else:
+                for j in range(len(layer)):
+                    error = 0.0
+                    for neuron in self.layers[i + 1]:
+                        error += neuron.delta * neuron.weights[j]
+                    err.append(error)
+            for j, neuron in enumerate(layer):
+                neuron.delta = err[j] * neuron.output * (1.0 - neuron.output)
+
+    def update_weights(self, row, learn_rate):
         inputs = row[:-1]
-        # exclude input layer
-        if i != 0:
-            inputs = [neuron['output'] for neuron in network[i - 1]]
-        for neuron in network[i]:
-            for j in range(len(inputs)):
-                # new weight = old weight - learn rate * error * input
-                neuron['weights'][j] -= learn_rate * \
-                    neuron['delta'] * inputs[j]
-            # bias - input is 1
-            neuron['weights'][-1] -= learn_rate * neuron['delta']
+        for i in range(len(self.layers)):
+            if i != 0:
+                inputs = [neuron.output for neuron in self.layers[i - 1]]
+            for neuron in self.layers[i]:
+                for j in range(len(inputs)):
+                    neuron.weights[j] -= learn_rate * neuron.delta * inputs[j]
+                neuron.weights[-1] -= learn_rate * neuron.delta
 
+    def train(self, train_data, learn_rate, num_epochs, num_outputs):
+        for epoch in range(num_epochs):
+            sum_error = 0
+            for row in train_data:
+                outputs = self.forward_propagate(row)
+                expected = [0 for _ in range(num_outputs)]
+                expected[row[-1]] = 1
+                sum_error += sum([(expected[i] - outputs[i])
+                                 ** 2 for i in range(len(expected))])
+                self.backward_propagate_error(expected)
+                self.update_weights(row, learn_rate)
+            print('>epoch=%d, lrate=%.3f, error=%.3f' %
+                  (epoch, learn_rate, sum_error))
 
-def train_network(network, train, learn_rate, num_epochs, num_outputs):
-    for epoch in range(num_epochs):
-        sum_error = 0
-        for row in train:
-            outputs = forward_propagate(network, row)
-            expected = [0 for _ in range(num_outputs)]
-            expected[row[-1]] = 1
-            # SSE - sum squared error
-            sum_error += sum([(expected[i]-outputs[i]) **
-                             2 for i in range(len(expected))])
-            backward_propagate_error(network, expected)
-            update_weights(network, row, learn_rate)
-        print('>epoch=%d, lrate=%.3f, error=%.3f' %
-              (epoch, learn_rate, sum_error))
-
-
-def predict(network, row):
-    outputs = forward_propagate(network, row)
-    return outputs.index(max(outputs))
+    def predict(self, row):
+        outputs = self.forward_propagate(row)
+        return outputs.index(max(outputs))
 
 
 seed(1)
@@ -120,8 +105,8 @@ dataset = [[2.7810836, 2.550537003, 0],
            [7.673756466, 3.508563011, 1]]
 n_inputs = len(dataset[0]) - 1
 n_outputs = len(set([row[-1] for row in dataset]))
-network = initialize_network(n_inputs, 2, n_outputs)
-train_network(network, dataset, 0.5, 20, n_outputs)
+network = Network(n_inputs, 2, n_outputs)
+network.train(dataset, 0.5, 20, n_outputs)
 for row in dataset:
-    prediction = predict(network, row)
+    prediction = network.predict(row)
     print('Expected=%d, Got=%d' % (row[-1], prediction))
